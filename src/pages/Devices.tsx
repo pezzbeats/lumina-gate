@@ -166,42 +166,79 @@ export default function DevicesPage() {
     onError: (e) => toast({ title: `Test failed: ${String(e)}` }),
   });
 
+  // Test All Devices
+  const testAllDevices = useMutation({
+    mutationFn: async () => {
+      if (!settings?.webhook_url) throw new Error("Set webhook URL in Settings");
+      const calls = devices.map((device) =>
+        supabase.functions.invoke("relay-webhook", {
+          body: {
+            url: settings.webhook_url!,
+            payload: {
+              type: "device_test",
+              device_id: device.id,
+              device_type: device.type,
+              state: device.state,
+              metadata: device.metadata,
+              timestamp: new Date().toISOString(),
+            },
+          },
+        })
+      );
+      const results = await Promise.allSettled(calls);
+      const success = results.filter((r) => r.status === "fulfilled").length;
+      const failed = results.length - success;
+      if (failed > 0) throw new Error(`${failed} failed, ${success} succeeded`);
+    },
+    onSuccess: () => toast({ title: "All device tests sent" }),
+    onError: (e) => toast({ title: `Bulk test: ${String(e)}` }),
+  });
+
   return (
     <main className="container py-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Devices</h1>
-        <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-          <DialogTrigger asChild>
-            <Button>Add Device</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>New Device</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3">
-              <Input placeholder="Name" value={createForm.name} onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} />
-              <Select onValueChange={(v) => setCreateForm((f) => ({ ...f, type: v as DeviceType }))}>
-                <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
-                <SelectContent>
-                  {DEVICE_TYPES.map((t) => (<SelectItem key={t} value={t}>{t}</SelectItem>))}
-                </SelectContent>
-              </Select>
-              <Select onValueChange={(v) => setCreateForm((f) => ({ ...f, location_id: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
-                <SelectContent>
-                  {locations.map((l: any) => (<SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>))}
-                </SelectContent>
-              </Select>
-              <div>
-                <label className="text-sm font-medium">Initial state (JSON)</label>
-                <textarea className="w-full min-h-24 rounded-md border bg-background p-2 text-sm" value={createForm.initState} onChange={(e) => setCreateForm((f) => ({ ...f, initState: e.target.value }))} />
+        <div className="flex gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => testAllDevices.mutate()}
+            disabled={!settings?.webhook_url || devices.length === 0}
+          >
+            Test All
+          </Button>
+          <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+            <DialogTrigger asChild>
+              <Button>Add Device</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>New Device</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <Input placeholder="Name" value={createForm.name} onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} />
+                <Select onValueChange={(v) => setCreateForm((f) => ({ ...f, type: v as DeviceType }))}>
+                  <SelectTrigger><SelectValue placeholder="Select type" /></SelectTrigger>
+                  <SelectContent>
+                    {DEVICE_TYPES.map((t) => (<SelectItem key={t} value={t}>{t}</SelectItem>))}
+                  </SelectContent>
+                </Select>
+                <Select onValueChange={(v) => setCreateForm((f) => ({ ...f, location_id: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
+                  <SelectContent>
+                    {locations.map((l: any) => (<SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>))}
+                  </SelectContent>
+                </Select>
+                <div>
+                  <label className="text-sm font-medium">Initial state (JSON)</label>
+                  <textarea className="w-full min-h-24 rounded-md border bg-background p-2 text-sm" value={createForm.initState} onChange={(e) => setCreateForm((f) => ({ ...f, initState: e.target.value }))} />
+                </div>
               </div>
-            </div>
-            <DialogFooter>
-              <Button disabled={!createForm.name || !createForm.type || !createForm.location_id} onClick={() => createDevice.mutate()}>Create</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+              <DialogFooter>
+                <Button disabled={!createForm.name || !createForm.type || !createForm.location_id} onClick={() => createDevice.mutate()}>Create</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
