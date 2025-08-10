@@ -40,9 +40,10 @@ export default function SettingsPage() {
   const testWebhook = useMutation({
     mutationFn: async () => {
       if (!webhook) throw new Error("Please enter a webhook URL");
-      const { data: resp, error } = await supabase.functions.invoke("relay-webhook", {
+      const { error } = await supabase.functions.invoke("relay-webhook", {
         body: {
           url: webhook,
+          background: true,
           payload: {
             type: "test",
             source: "settings_page",
@@ -52,9 +53,6 @@ export default function SettingsPage() {
         },
       });
       if (error) throw error;
-      if (resp && (resp as any).ok === false) {
-        throw new Error((resp as any).statusText || "Webhook returned error");
-      }
     },
     onSuccess: () => toast({ title: "Webhook test sent" }),
     onError: (e) => toast({ title: `Test failed: ${String(e)}` }),

@@ -80,6 +80,7 @@ export default function ScenesPage() {
         await supabase.functions.invoke("relay-webhook", {
           body: {
             url: settings.webhook_url,
+            background: true,
             payload: { type: "scene_activation", scene_id: scene.id, actions: scene.actions },
           },
         });
@@ -101,6 +102,7 @@ export default function ScenesPage() {
         await supabase.functions.invoke("relay-webhook", {
           body: {
             url: settings.webhook_url,
+            background: true,
             payload: { type: "bulk_scene_activation", scene_ids: scenesToActivate.map((s: any) => s.id) },
           },
         });

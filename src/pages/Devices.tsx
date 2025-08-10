@@ -54,6 +54,7 @@ export default function DevicesPage() {
         await supabase.functions.invoke("relay-webhook", {
           body: {
             url: settings.webhook_url,
+            background: true,
             payload: { type: "device_action", device_id: id, action, state: newState },
           },
         });
@@ -148,6 +149,7 @@ export default function DevicesPage() {
       const { data: resp, error } = await supabase.functions.invoke("relay-webhook", {
         body: {
           url: settings.webhook_url,
+          background: true,
           payload: {
             type: "device_test",
             device_id: device.id,
@@ -158,9 +160,7 @@ export default function DevicesPage() {
           },
         },
       });
-      if (error || (resp && (resp as any).ok === false)) {
-        throw new Error((error as any)?.message || (resp as any)?.statusText || "Webhook failed");
-      }
+      if (error) throw error;
     },
     onSuccess: () => toast({ title: "Test sent" }),
     onError: (e) => toast({ title: `Test failed: ${String(e)}` }),
@@ -174,6 +174,7 @@ export default function DevicesPage() {
         supabase.functions.invoke("relay-webhook", {
           body: {
             url: settings.webhook_url!,
+            background: true,
             payload: {
               type: "device_test",
               device_id: device.id,
