@@ -2,3 +2,6 @@ project_id = "byocyavrqkgvxxnqnqud"
 
 [functions.relay-webhook]
 verify_jwt = false
+
+[functions.device-admin]
+verify_jwt = false

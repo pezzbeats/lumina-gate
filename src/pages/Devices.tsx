@@ -8,11 +8,13 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
+import { Info } from "lucide-react";
 
 async function fetchDevices(): Promise<Device[]> {
   const { data, error } = await supabase
     .from("devices")
-    .select("id,name,type,location_id,state,metadata,last_seen, location:locations(id,name)")
+    .select("id,name,type,location_id,power,state,metadata,last_seen, location:locations(id,name)")
     .order("name", { ascending: true });
   if (error) throw error;
   return (data as any) || [];
@@ -40,15 +42,22 @@ export default function DevicesPage() {
 
   useRealtimeTables(["devices"], () => qc.invalidateQueries({ queryKey: ["devices"] }));
 
+  const [typeFilter, setTypeFilter] = useState<DeviceType | "all">("all");
+  const [powerFilter, setPowerFilter] = useState<"all" | "on" | "off">("all");
+  const filteredDevices = (devices || []).filter((d) => {
+    const typeOk = typeFilter === "all" || d.type === typeFilter;
+    const isOn = (d as any).power ?? Boolean((d as any).state?.power);
+    const powerOk = powerFilter === "all" || (powerFilter === "on" ? isOn === true : isOn === false);
+    return typeOk && powerOk;
+  });
+
   // Optimistic state update & webhook relay for control actions
   const controlMutation = useMutation({
     mutationFn: async ({ id, newState, action }: { id: string; newState: any; action: string }) => {
-      const { error } = await supabase
-        .from("devices")
-        .update({ state: newState, last_seen: new Date().toISOString() })
-        .eq("id", id);
+      const { error } = await supabase.functions.invoke("device-admin", {
+        body: { action: "update_device_state", id, newState, eventAction: action },
+      });
       if (error) throw error;
-      await supabase.from("sensor_events").insert({ device_id: id, event_type: action, value: newState });
 
       if (settings?.webhook_url) {
         await supabase.functions.invoke("relay-webhook", {
@@ -87,13 +96,15 @@ export default function DevicesPage() {
       }
       let initState: any = {};
       try { initState = JSON.parse(createForm.initState || "{}"); } catch { throw new Error("Invalid JSON for initial state"); }
-      const { error } = await supabase.from("devices").insert({
-        name: createForm.name,
-        type: createForm.type,
-        location_id: createForm.location_id,
-        state: initState,
-        metadata: { endpoint: "https://example.com/mock-endpoint" },
-        last_seen: new Date().toISOString(),
+      const { error } = await supabase.functions.invoke("device-admin", {
+        body: {
+          action: "create_device",
+          name: createForm.name,
+          type: createForm.type,
+          location_id: createForm.location_id,
+          state: initState,
+          metadata: { endpoint: "https://example.com/mock-endpoint" },
+        }
       });
       if (error) throw error;
     },
@@ -114,10 +125,15 @@ export default function DevicesPage() {
   const updateDevice = useMutation({
     mutationFn: async () => {
       if (!editId || !editForm.name || !editForm.type || !editForm.location_id) throw new Error("Missing fields");
-      const { error } = await supabase
-        .from("devices")
-        .update({ name: editForm.name, type: editForm.type, location_id: editForm.location_id })
-        .eq("id", editId);
+      const { error } = await supabase.functions.invoke("device-admin", {
+        body: {
+          action: "update_device",
+          id: editId,
+          name: editForm.name,
+          type: editForm.type,
+          location_id: editForm.location_id,
+        }
+      });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -132,7 +148,7 @@ export default function DevicesPage() {
   // Delete Device
   const deleteDevice = useMutation({
     mutationFn: async (id: string) => {
-      const { error } = await supabase.from("devices").delete().eq("id", id);
+      const { error } = await supabase.functions.invoke("device-admin", { body: { action: "delete_device", id } });
       if (error) throw error;
     },
     onSuccess: () => {
@@ -241,9 +257,41 @@ export default function DevicesPage() {
           </Dialog>
         </div>
       </div>
+      <div className="flex items-center gap-4">
+        <div className="flex items-center gap-2">
+          <span className="text-sm font-medium">Filters</span>
+          <TooltipProvider>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Info className="h-4 w-4" />
+              </TooltipTrigger>
+              <TooltipContent>
+                <p>Type comes from a strict enum; names are unique per location.</p>
+              </TooltipContent>
+            </Tooltip>
+          </TooltipProvider>
+        </div>
+        <div className="flex items-center gap-2">
+          <Select value={typeFilter} onValueChange={(v) => setTypeFilter(v as any)}>
+            <SelectTrigger className="w-40"><SelectValue placeholder="All types" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">All types</SelectItem>
+              {DEVICE_TYPES.map((t) => (<SelectItem key={t} value={t}>{t}</SelectItem>))}
+            </SelectContent>
+          </Select>
+          <Select value={powerFilter} onValueChange={(v) => setPowerFilter(v as any)}>
+            <SelectTrigger className="w-40"><SelectValue placeholder="Power" /></SelectTrigger>
+            <SelectContent>
+              <SelectItem value="all">Power: All</SelectItem>
+              <SelectItem value="on">Power: On</SelectItem>
+              <SelectItem value="off">Power: Off</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      </div>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {devices.map((d) => (
+        {filteredDevices.map((d) => (
           <DeviceCard
             key={d.id}
             device={d}

@@ -43,8 +43,9 @@ export type Database = {
           location_id: string
           metadata: Json
           name: string
+          power: boolean | null
           state: Json
-          type: string
+          type: Database["public"]["Enums"]["device_type"]
           updated_at: string
         }
         Insert: {
@@ -54,8 +55,9 @@ export type Database = {
           location_id: string
           metadata?: Json
           name: string
+          power?: boolean | null
           state?: Json
-          type: string
+          type: Database["public"]["Enums"]["device_type"]
           updated_at?: string
         }
         Update: {
@@ -65,8 +67,9 @@ export type Database = {
           location_id?: string
           metadata?: Json
           name?: string
+          power?: boolean | null
           state?: Json
-          type?: string
+          type?: Database["public"]["Enums"]["device_type"]
           updated_at?: string
         }
         Relationships: [
@@ -211,7 +214,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      [_ in never]: never
+      device_type: "light" | "fan" | "ac" | "curtain" | "geyser" | "sensor"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -338,6 +341,8 @@ export type CompositeTypes<
 
 export const Constants = {
   public: {
-    Enums: {},
+    Enums: {
+      device_type: ["light", "fan", "ac", "curtain", "geyser", "sensor"],
+    },
   },
 } as const
