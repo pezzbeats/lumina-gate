@@ -14,7 +14,195 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      app_settings: {
+        Row: {
+          created_at: string
+          id: string
+          updated_at: string
+          webhook_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          updated_at?: string
+          webhook_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          updated_at?: string
+          webhook_url?: string | null
+        }
+        Relationships: []
+      }
+      devices: {
+        Row: {
+          created_at: string
+          id: string
+          last_seen: string | null
+          location_id: string
+          metadata: Json
+          name: string
+          state: Json
+          type: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          last_seen?: string | null
+          location_id: string
+          metadata?: Json
+          name: string
+          state?: Json
+          type: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          last_seen?: string | null
+          location_id?: string
+          metadata?: Json
+          name?: string
+          state?: Json
+          type?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "devices_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      locations: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      scene_actions: {
+        Row: {
+          desired_state: Json
+          device_id: string
+          id: string
+          scene_id: string
+        }
+        Insert: {
+          desired_state?: Json
+          device_id: string
+          id?: string
+          scene_id: string
+        }
+        Update: {
+          desired_state?: Json
+          device_id?: string
+          id?: string
+          scene_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scene_actions_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "scene_actions_scene_id_fkey"
+            columns: ["scene_id"]
+            isOneToOne: false
+            referencedRelation: "scenes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scenes: {
+        Row: {
+          created_at: string
+          id: string
+          location_id: string
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          location_id: string
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          location_id?: string
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scenes_location_id_fkey"
+            columns: ["location_id"]
+            isOneToOne: false
+            referencedRelation: "locations"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      sensor_events: {
+        Row: {
+          created_at: string
+          device_id: string
+          event_type: string
+          id: string
+          timestamp: string
+          value: Json | null
+        }
+        Insert: {
+          created_at?: string
+          device_id: string
+          event_type: string
+          id?: string
+          timestamp?: string
+          value?: Json | null
+        }
+        Update: {
+          created_at?: string
+          device_id?: string
+          event_type?: string
+          id?: string
+          timestamp?: string
+          value?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "sensor_events_device_id_fkey"
+            columns: ["device_id"]
+            isOneToOne: false
+            referencedRelation: "devices"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
