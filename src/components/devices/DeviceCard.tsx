@@ -45,6 +45,42 @@ export function DeviceCard({ device, onChange, onEdit, onDelete }: DeviceCardPro
     onChange(newState, action);
   };
 
+  const presets = useMemo(() => {
+    switch (device.type) {
+      case "light":
+        return [
+          { label: "Off", state: { power: false } },
+          { label: "On 100%", state: { power: true, brightness: 100 } },
+          { label: "Relax 50%", state: { power: true, brightness: 50 } },
+        ];
+      case "fan":
+        return [
+          { label: "Off", state: { power: false } },
+          { label: "Low", state: { power: true, speed: 1 } },
+          { label: "Med", state: { power: true, speed: 2 } },
+          { label: "High", state: { power: true, speed: 3 } },
+        ];
+      case "ac":
+        return [
+          { label: "Off", state: { power: false } },
+          { label: "Cool 22°", state: { power: true, temperature: 22 } },
+          { label: "Eco 26°", state: { power: true, temperature: 26 } },
+        ];
+      case "curtain":
+        return [
+          { label: "Open", state: { position: "open" } },
+          { label: "Close", state: { position: "closed" } },
+        ];
+      case "geyser":
+        return [
+          { label: "On", state: { power: true } },
+          { label: "Off", state: { power: false } },
+        ];
+      default:
+        return [] as Array<{ label: string; state: any }>;
+    }
+  }, [device.type]);
+
   const typeBadge = (
     <Badge variant="secondary" className="capitalize">{device.type}</Badge>
   );
@@ -164,7 +200,26 @@ export function DeviceCard({ device, onChange, onEdit, onDelete }: DeviceCardPro
             Last seen: {device.last_seen ? new Date(device.last_seen).toLocaleString() : "-"}
           </div>
         )}
+
+        {presets.length > 0 && (
+          <div className="pt-2">
+            <div className="text-xs text-muted-foreground mb-1">Presets</div>
+            <div className="flex flex-wrap gap-2">
+              {presets.map((p) => (
+                <Button
+                  key={p.label}
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => commit({ ...localState, ...p.state }, `preset:${p.label}`)}
+                >
+                  {p.label}
+                </Button>
+              ))}
+            </div>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
 }
+

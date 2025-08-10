@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { toast } from "@/hooks/use-toast";
-import { useState } from "react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useState, useMemo } from "react";
 
 async function fetchLocations() {
   const { data, error } = await supabase.from("locations").select("id,name").order("name");
@@ -88,6 +89,27 @@ export default function ScenesPage() {
     onError: (e) => toast({ title: String(e) }),
   });
 
+  const bulkActivate = useMutation({
+    mutationFn: async (scenesToActivate: any[]) => {
+      for (const scene of scenesToActivate) {
+        for (const act of scene.actions || []) {
+          await supabase.from("devices").update({ state: act.desired_state, last_seen: new Date().toISOString() }).eq("id", act.device_id);
+          await supabase.from("sensor_events").insert({ device_id: act.device_id, event_type: "scene_applied", value: act.desired_state });
+        }
+      }
+      if (settings?.webhook_url) {
+        await supabase.functions.invoke("relay-webhook", {
+          body: {
+            url: settings.webhook_url,
+            payload: { type: "bulk_scene_activation", scene_ids: scenesToActivate.map((s: any) => s.id) },
+          },
+        });
+      }
+    },
+    onSuccess: () => toast({ title: "Activated selected scenes" }),
+    onError: (e) => toast({ title: String(e) }),
+  });
+
   const [editOpen, setEditOpen] = useState(false);
   const [editScene, setEditScene] = useState<any>(null);
 
@@ -118,34 +140,46 @@ export default function ScenesPage() {
     onError: (e) => toast({ title: String(e) }),
   });
 
+  const [selected, setSelected] = useState<Record<string, boolean>>({});
+  const selectedIds = useMemo(() => Object.entries(selected).filter(([, v]) => v).map(([id]) => id), [selected]);
+
   return (
     <main className="container py-6 space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-semibold">Scenes</h1>
-        <Dialog open={openCreate} onOpenChange={setOpenCreate}>
-          <DialogTrigger asChild>
-            <Button>Create Scene</Button>
-          </DialogTrigger>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>New Scene</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-3">
-              <Input placeholder="Scene name" value={newScene.name} onChange={(e) => setNewScene((s) => ({ ...s, name: e.target.value }))} />
-              <Select onValueChange={(v) => setNewScene((s) => ({ ...s, location_id: v }))}>
-                <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
-                <SelectContent>
-                  {locations.map((l: any) => (
-                    <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            <DialogFooter>
-              <Button disabled={!newScene.name || !newScene.location_id} onClick={() => createScene.mutate(newScene as any)}>Create</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
+        <div className="flex gap-2">
+          <Button
+            variant="secondary"
+            disabled={!selectedIds.length}
+            onClick={() => bulkActivate.mutate(scenes.filter((s: any) => selectedIds.includes(s.id)))}
+          >
+            Activate Selected
+          </Button>
+          <Dialog open={openCreate} onOpenChange={setOpenCreate}>
+            <DialogTrigger asChild>
+              <Button>Create Scene</Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>New Scene</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-3">
+                <Input placeholder="Scene name" value={newScene.name} onChange={(e) => setNewScene((s) => ({ ...s, name: e.target.value }))} />
+                <Select onValueChange={(v) => setNewScene((s) => ({ ...s, location_id: v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
+                  <SelectContent>
+                    {locations.map((l: any) => (
+                      <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <DialogFooter>
+                <Button disabled={!newScene.name || !newScene.location_id} onClick={() => createScene.mutate(newScene as any)}>Create</Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
 
       <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -153,7 +187,13 @@ export default function ScenesPage() {
           <Card key={s.id}>
             <CardHeader>
               <div className="flex items-center justify-between">
-                <CardTitle>{s.name}</CardTitle>
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={!!selected[s.id]}
+                    onCheckedChange={(v) => setSelected((prev) => ({ ...prev, [s.id]: !!v }))}
+                  />
+                  <CardTitle>{s.name}</CardTitle>
+                </div>
                 <div className="flex gap-2">
                   <Button variant="secondary" onClick={() => { setEditScene(s); setEditOpen(true); }}>Edit</Button>
                   <Button variant="destructive" onClick={() => deleteScene.mutate(s.id)}>Delete</Button>
