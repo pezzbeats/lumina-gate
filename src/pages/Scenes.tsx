@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogT
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { toast } from "sonner";
+import { toast } from "@/hooks/use-toast";
 import { useState } from "react";
 
 async function fetchLocations() {
@@ -18,7 +18,7 @@ async function fetchLocations() {
 async function fetchScenes() {
   const { data, error } = await supabase
     .from("scenes")
-    .select("id,name,location_id, actions:scene_actions(id,device_id,desired_state)")
+    .select("id,name,location_id, actions:scene_actions(id,device_id,desired_state, device:devices(name))")
     .order("name");
   if (error) throw error;
   return data || [];
@@ -48,12 +48,12 @@ export default function ScenesPage() {
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Scene created");
+      toast({ title: "Scene created" });
       setOpenCreate(false);
       setNewScene({ name: "" });
       qc.invalidateQueries({ queryKey: ["scenes"] });
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast({ title: String(e) }),
   });
 
   const addAction = useMutation({
@@ -62,15 +62,14 @@ export default function ScenesPage() {
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Action added");
+      toast({ title: "Action added" });
       qc.invalidateQueries({ queryKey: ["scenes"] });
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast({ title: String(e) }),
   });
 
   const activateScene = useMutation({
     mutationFn: async (scene: any) => {
-      // Update devices based on scene actions
       for (const act of scene.actions || []) {
         await supabase.from("devices").update({ state: act.desired_state, last_seen: new Date().toISOString() }).eq("id", act.device_id);
         await supabase.from("sensor_events").insert({ device_id: act.device_id, event_type: "scene_applied", value: act.desired_state });
@@ -85,8 +84,38 @@ export default function ScenesPage() {
         });
       }
     },
-    onSuccess: () => toast.success("Scene activated"),
-    onError: (e) => toast.error(String(e)),
+    onSuccess: () => toast({ title: "Scene activated" }),
+    onError: (e) => toast({ title: String(e) }),
+  });
+
+  const [editOpen, setEditOpen] = useState(false);
+  const [editScene, setEditScene] = useState<any>(null);
+
+  const updateScene = useMutation({
+    mutationFn: async ({ id, name, location_id }: { id: string; name: string; location_id: string }) => {
+      const { error } = await supabase.from("scenes").update({ name, location_id }).eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { toast({ title: "Scene updated" }); qc.invalidateQueries({ queryKey: ["scenes"] }); setEditOpen(false); },
+    onError: (e) => toast({ title: String(e) }),
+  });
+
+  const deleteScene = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("scenes").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { toast({ title: "Scene deleted" }); qc.invalidateQueries({ queryKey: ["scenes"] }); },
+    onError: (e) => toast({ title: String(e) }),
+  });
+
+  const deleteAction = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("scene_actions").delete().eq("id", id);
+      if (error) throw error;
+    },
+    onSuccess: () => { toast({ title: "Action removed" }); qc.invalidateQueries({ queryKey: ["scenes"] }); },
+    onError: (e) => toast({ title: String(e) }),
   });
 
   return (
@@ -123,37 +152,73 @@ export default function ScenesPage() {
         {scenes.map((s: any) => (
           <Card key={s.id}>
             <CardHeader>
-              <CardTitle>{s.name}</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="text-sm text-muted-foreground">Actions: {s.actions?.length || 0}</div>
-              <div className="flex flex-wrap gap-2">
-                <Dialog>
-                  <DialogTrigger asChild>
-                    <Button variant="secondary">Add Action</Button>
-                  </DialogTrigger>
-                  <DialogContent>
-                    <DialogHeader>
-                      <DialogTitle>Add Action</DialogTitle>
-                    </DialogHeader>
-                    <AddActionForm sceneId={s.id} devices={devices} onSave={(payload) => addAction.mutate(payload)} />
-                  </DialogContent>
-                </Dialog>
-                <Button onClick={() => activateScene.mutate(s)}>Activate</Button>
+              <div className="flex items-center justify-between">
+                <CardTitle>{s.name}</CardTitle>
+                <div className="flex gap-2">
+                  <Button variant="secondary" onClick={() => { setEditScene(s); setEditOpen(true); }}>Edit</Button>
+                  <Button variant="destructive" onClick={() => deleteScene.mutate(s.id)}>Delete</Button>
+                </div>
               </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              <div className="text-sm text-muted-foreground">Actions: {s.actions?.length || 0}</div>
+              <div className="space-y-2">
+                {(s.actions || []).map((a: any) => (
+                  <div key={a.id} className="flex items-center justify-between text-sm">
+                    <div>
+                      <span className="font-medium">{a.device?.name || a.device_id}:</span> <span className="text-muted-foreground">{JSON.stringify(a.desired_state)}</span>
+                    </div>
+                    <Button size="sm" variant="destructive" onClick={() => deleteAction.mutate(a.id)}>Remove</Button>
+                  </div>
+                ))}
+              </div>
+              <Dialog>
+                <DialogTrigger asChild>
+                  <Button variant="secondary">Add Action</Button>
+                </DialogTrigger>
+                <DialogContent>
+                  <DialogHeader>
+                    <DialogTitle>Add Action</DialogTitle>
+                  </DialogHeader>
+                  <AddActionForm sceneId={s.id} devices={devices} onSave={(payload) => addAction.mutate(payload)} />
+                </DialogContent>
+              </Dialog>
+              <Button onClick={() => activateScene.mutate(s)}>Activate</Button>
             </CardContent>
           </Card>
         ))}
       </section>
+
+      <Dialog open={editOpen} onOpenChange={setEditOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Edit Scene</DialogTitle>
+          </DialogHeader>
+          {editScene && (
+            <div className="space-y-3">
+              <Input value={editScene.name} onChange={(e) => setEditScene({ ...editScene, name: e.target.value })} />
+              <Select value={editScene.location_id} onValueChange={(v) => setEditScene({ ...editScene, location_id: v })}>
+                <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
+                <SelectContent>
+                  {locations.map((l: any) => (
+                    <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => updateScene.mutate({ id: editScene.id, name: editScene.name, location_id: editScene.location_id })} disabled={!editScene?.name || !editScene?.location_id}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
 }
 
 function AddActionForm({ sceneId, devices, onSave }: { sceneId: string; devices: any[]; onSave: (p: { scene_id: string; device_id: string; desired_state: any }) => void }) {
   const [deviceId, setDeviceId] = useState<string | undefined>();
-  const [json, setJson] = useState(`{
-  \"power\": true
-}`);
+  const [json, setJson] = useState("{\n  \"power\": true\n}");
 
   return (
     <div className="space-y-3">
@@ -174,7 +239,7 @@ function AddActionForm({ sceneId, devices, onSave }: { sceneId: string; devices:
               const desired = JSON.parse(json);
               onSave({ scene_id: sceneId, device_id: deviceId!, desired_state: desired });
             } catch {
-              toast.error("Invalid JSON");
+              toast({ title: "Invalid JSON" });
             }
           }}
         >

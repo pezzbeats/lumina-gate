@@ -3,7 +3,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { toast } from "sonner";
+import { toast } from "@/hooks/use-toast";
 import { useState } from "react";
 
 export default function SettingsPage() {
@@ -30,10 +30,10 @@ export default function SettingsPage() {
       }
     },
     onSuccess: () => {
-      toast.success("Settings saved");
+      toast({ title: "Settings saved" });
       qc.invalidateQueries({ queryKey: ["app_settings"] });
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast({ title: String(e) }),
   });
 
   return (

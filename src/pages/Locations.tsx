@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
-import { toast } from "sonner";
+import { toast } from "@/hooks/use-toast";
 import { useState } from "react";
 
 async function fetchLocations() {
@@ -28,12 +28,12 @@ export default function LocationsPage() {
       if (error) throw error;
     },
     onSuccess: () => {
-      toast.success("Location created");
+      toast({ title: "Location created" });
       setOpen(false);
       setName("");
       qc.invalidateQueries({ queryKey: ["locations"] });
     },
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast({ title: String(e) }),
   });
 
   const update = useMutation({
@@ -42,7 +42,7 @@ export default function LocationsPage() {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["locations"] }),
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast({ title: String(e) }),
   });
 
   const remove = useMutation({
@@ -51,7 +51,7 @@ export default function LocationsPage() {
       if (error) throw error;
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: ["locations"] }),
-    onError: (e) => toast.error(String(e)),
+    onError: (e) => toast({ title: String(e) }),
   });
 
   return (
