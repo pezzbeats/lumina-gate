@@ -141,6 +141,31 @@ export default function DevicesPage() {
     onError: (e) => toast({ title: String(e) }),
   });
 
+  // Test Device Webhook
+  const testDevice = useMutation({
+    mutationFn: async (device: Device) => {
+      if (!settings?.webhook_url) throw new Error("Set webhook URL in Settings");
+      const { data: resp, error } = await supabase.functions.invoke("relay-webhook", {
+        body: {
+          url: settings.webhook_url,
+          payload: {
+            type: "device_test",
+            device_id: device.id,
+            device_type: device.type,
+            state: device.state,
+            metadata: device.metadata,
+            timestamp: new Date().toISOString(),
+          },
+        },
+      });
+      if (error || (resp && (resp as any).ok === false)) {
+        throw new Error((error as any)?.message || (resp as any)?.statusText || "Webhook failed");
+      }
+    },
+    onSuccess: () => toast({ title: "Test sent" }),
+    onError: (e) => toast({ title: `Test failed: ${String(e)}` }),
+  });
+
   return (
     <main className="container py-6 space-y-6">
       <div className="flex items-center justify-between">
@@ -191,6 +216,7 @@ export default function DevicesPage() {
               setOpenEdit(true);
             }}
             onDelete={() => deleteDevice.mutate(d.id)}
+            onTest={() => testDevice.mutate(d)}
           />
         ))}
       </section>

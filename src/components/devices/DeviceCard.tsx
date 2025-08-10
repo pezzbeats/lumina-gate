@@ -5,7 +5,7 @@ import { Slider } from "@/components/ui/slider";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ReactNode, useMemo, useState } from "react";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Send } from "lucide-react";
 
 export type DeviceType = "light" | "fan" | "ac" | "curtain" | "geyser" | "sensor";
 
@@ -23,11 +23,12 @@ export interface Device {
 export interface DeviceCardProps {
   device: Device;
   onChange: (newState: any, action: string) => void;
+  onTest?: () => void;
   onEdit?: () => void;
   onDelete?: () => void;
 }
 
-export function DeviceCard({ device, onChange, onEdit, onDelete }: DeviceCardProps) {
+export function DeviceCard({ device, onChange, onTest, onEdit, onDelete }: DeviceCardProps) {
   const [localState, setLocalState] = useState<any>(device.state || {});
 
   // Keep local state in sync if parent updates via realtime
@@ -97,6 +98,11 @@ export function DeviceCard({ device, onChange, onEdit, onDelete }: DeviceCardPro
           </div>
           <div className="flex items-center gap-2">
             {typeBadge}
+            {onTest && (
+              <Button variant="secondary" size="sm" onClick={onTest} aria-label={`Test ${device.name}`}>
+                <Send className="h-4 w-4" />
+              </Button>
+            )}
             {onEdit && (
               <Button variant="secondary" size="sm" onClick={onEdit} aria-label={`Edit ${device.name}`}>
                 <Pencil className="h-4 w-4" />
