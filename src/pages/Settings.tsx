@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
-import { Send, RefreshCw, Trash2 } from "lucide-react";
+import { Send, RefreshCw, Trash2, Download } from "lucide-react";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 
 interface WebhookUrls {
@@ -145,6 +145,32 @@ export default function SettingsPage() {
   return (
     <main className="container py-6 space-y-6 max-w-3xl">
       <h1 className="text-2xl font-semibold">Settings</h1>
+
+      {/* n8n Workflow Download */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-lg">n8n Master Controller Workflow</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-muted-foreground">
+            Download the pre-built n8n workflow that receives all events from this app and routes them by action type (device toggle, scene activation, sensor event). Import it directly into n8n to get started.
+          </p>
+          <div className="rounded-md border bg-muted/40 p-3 text-xs font-mono text-muted-foreground space-y-1">
+            <div>POST /webhook/home-automation</div>
+            <div>→ toggle → Handle Device Toggle</div>
+            <div>→ activate_scene → Handle Scene</div>
+            <div>→ sensor_event → Handle Sensor</div>
+            <div>→ test → Handle Test</div>
+            <div>→ * → Fallback Unknown</div>
+          </div>
+          <a href="/n8n-master-controller.json" download="n8n-master-controller.json">
+            <Button variant="secondary">
+              <Download className="h-4 w-4 mr-2" />
+              Download n8n Workflow JSON
+            </Button>
+          </a>
+        </CardContent>
+      </Card>
 
       {/* Webhook Configuration */}
       <Card>

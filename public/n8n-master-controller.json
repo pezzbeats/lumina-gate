@@ -1,0 +1,148 @@
+{
+  "name": "Home Automation - Master Controller",
+  "nodes": [
+    {
+      "parameters": {
+        "path": "home-automation",
+        "httpMethod": "POST",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000001",
+      "name": "Webhook Receiver",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "home-automation-master"
+    },
+    {
+      "parameters": {
+        "functionCode": "const body = items[0].json.body || items[0].json;\n\nreturn [{\n  json: {\n    source: body.source || 'dashboard',\n    action: body.action || 'unknown',\n    device_id: body.device_id || null,\n    location_id: body.location_id || null,\n    device_type: body.device_type || null,\n    desired_state: body.desired_state || {},\n    scene_id: Array.isArray(body.scene_id) ? body.scene_id : (body.scene_id ? [body.scene_id] : []),\n    event_type: body.event_type || null,\n    webhook_type: body.webhook_type || null,\n    timestamp: body.timestamp || new Date().toISOString()\n  }\n}];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000002",
+      "name": "Normalize Payload",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "dataType": "string",
+        "value1": "={{$json.action}}",
+        "rules": {
+          "rules": [
+            { "value2": "toggle",         "output": 0 },
+            { "value2": "activate_scene", "output": 1 },
+            { "value2": "sensor_event",   "output": 2 },
+            { "value2": "test",           "output": 3 }
+          ]
+        },
+        "fallbackOutput": 4
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000003",
+      "name": "Route by Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "const d = items[0].json;\nconsole.log('[TOGGLE] device:', d.device_id, 'type:', d.device_type, 'state:', JSON.stringify(d.desired_state));\n\n// === FUTURE: call device SDK / MQTT / Home Assistant here ===\n\nreturn [{ json: { ok: true, handled: 'toggle', device_id: d.device_id, device_type: d.device_type, new_state: d.desired_state, location_id: d.location_id, ts: d.timestamp } }];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000004",
+      "name": "Handle Device Toggle",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [920, 80]
+    },
+    {
+      "parameters": {
+        "functionCode": "const d = items[0].json;\nconsole.log('[SCENE] ids:', JSON.stringify(d.scene_id));\n\n// === FUTURE: fetch scene actions from Supabase and apply each device ===\n\nreturn [{ json: { ok: true, handled: 'activate_scene', scene_id: d.scene_id, location_id: d.location_id, ts: d.timestamp } }];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000005",
+      "name": "Handle Scene",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [920, 240]
+    },
+    {
+      "parameters": {
+        "functionCode": "const d = items[0].json;\nconsole.log('[SENSOR] device:', d.device_id, 'event:', d.event_type, 'value:', JSON.stringify(d.desired_state));\n\n// === FUTURE: evaluate automation rules here ===\n// e.g. if motion_detected && time > 22:00 -> activate Good Night scene\n\nreturn [{ json: { ok: true, handled: 'sensor_event', device_id: d.device_id, event_type: d.event_type, value: d.desired_state, ts: d.timestamp } }];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000006",
+      "name": "Handle Sensor",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [920, 400]
+    },
+    {
+      "parameters": {
+        "functionCode": "const d = items[0].json;\nconsole.log('[TEST] webhook_type:', d.webhook_type);\nreturn [{ json: { ok: true, handled: 'test', webhook_type: d.webhook_type, ts: d.timestamp } }];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000007",
+      "name": "Handle Test",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [920, 560]
+    },
+    {
+      "parameters": {
+        "functionCode": "const d = items[0].json;\nconsole.warn('[UNKNOWN ACTION]', d.action, JSON.stringify(d));\nreturn [{ json: { ok: false, error: 'unknown_action', action: d.action } }];"
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000008",
+      "name": "Fallback Unknown",
+      "type": "n8n-nodes-base.function",
+      "typeVersion": 1,
+      "position": [920, 720]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "responseCode": 200
+        }
+      },
+      "id": "a1b2c3d4-0001-0001-0001-000000000009",
+      "name": "Send Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1160, 400]
+    }
+  ],
+  "connections": {
+    "Webhook Receiver": {
+      "main": [[{ "node": "Normalize Payload",    "type": "main", "index": 0 }]]
+    },
+    "Normalize Payload": {
+      "main": [[{ "node": "Route by Action",       "type": "main", "index": 0 }]]
+    },
+    "Route by Action": {
+      "main": [
+        [{ "node": "Handle Device Toggle", "type": "main", "index": 0 }],
+        [{ "node": "Handle Scene",         "type": "main", "index": 0 }],
+        [{ "node": "Handle Sensor",        "type": "main", "index": 0 }],
+        [{ "node": "Handle Test",          "type": "main", "index": 0 }],
+        [{ "node": "Fallback Unknown",     "type": "main", "index": 0 }]
+      ]
+    },
+    "Handle Device Toggle": {
+      "main": [[{ "node": "Send Response", "type": "main", "index": 0 }]]
+    },
+    "Handle Scene": {
+      "main": [[{ "node": "Send Response", "type": "main", "index": 0 }]]
+    },
+    "Handle Sensor": {
+      "main": [[{ "node": "Send Response", "type": "main", "index": 0 }]]
+    },
+    "Handle Test": {
+      "main": [[{ "node": "Send Response", "type": "main", "index": 0 }]]
+    },
+    "Fallback Unknown": {
+      "main": [[{ "node": "Send Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
