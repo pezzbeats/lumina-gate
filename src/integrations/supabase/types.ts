@@ -20,18 +20,27 @@ export type Database = {
           id: string
           updated_at: string
           webhook_url: string | null
+          device_toggle_webhook_url: string | null
+          scene_activate_webhook_url: string | null
+          sensor_event_webhook_url: string | null
         }
         Insert: {
           created_at?: string
           id?: string
           updated_at?: string
           webhook_url?: string | null
+          device_toggle_webhook_url?: string | null
+          scene_activate_webhook_url?: string | null
+          sensor_event_webhook_url?: string | null
         }
         Update: {
           created_at?: string
           id?: string
           updated_at?: string
           webhook_url?: string | null
+          device_toggle_webhook_url?: string | null
+          scene_activate_webhook_url?: string | null
+          sensor_event_webhook_url?: string | null
         }
         Relationships: []
       }
@@ -206,15 +215,56 @@ export type Database = {
           },
         ]
       }
+      webhook_logs: {
+        Row: {
+          id: string
+          webhook_type: string
+          url: string | null
+          payload: Json | null
+          status: number | null
+          duration_ms: number | null
+          error: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          webhook_type: string
+          url?: string | null
+          payload?: Json | null
+          status?: number | null
+          duration_ms?: number | null
+          error?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          webhook_type?: string
+          url?: string | null
+          payload?: Json | null
+          status?: number | null
+          duration_ms?: number | null
+          error?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      [_ in never]: never
+      get_scene_actions: {
+        Args: { p_scene_id: string }
+        Returns: {
+          id: string
+          device_id: string
+          desired_state: Json
+          device_name: string
+        }[]
+      }
     }
     Enums: {
-      device_type: "light" | "fan" | "ac" | "curtain" | "geyser" | "sensor"
+      device_type: "light" | "fan" | "ac" | "curtain" | "geyser" | "sensor" | "smart_plug" | "ir_blaster"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -342,7 +392,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      device_type: ["light", "fan", "ac", "curtain", "geyser", "sensor"],
+      device_type: ["light", "fan", "ac", "curtain", "geyser", "sensor", "smart_plug", "ir_blaster"],
     },
   },
 } as const

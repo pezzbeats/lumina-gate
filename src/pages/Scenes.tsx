@@ -19,7 +19,7 @@ async function fetchLocations() {
 async function fetchScenes() {
   const { data, error } = await supabase
     .from("scenes")
-    .select("id,name,location_id, actions:scene_actions(id,device_id,desired_state, device:devices(name))")
+    .select("id,name,location_id, actions:scene_actions(id,device_id,desired_state, device:devices(name,location_id))")
     .order("name");
   if (error) throw error;
   return data || [];
@@ -31,12 +31,26 @@ async function fetchDevices() {
   return data || [];
 }
 
+async function fetchSettings() {
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("id,webhook_url,scene_activate_webhook_url")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+function getSceneWebhookUrl(settings: any): string | null {
+  return settings?.scene_activate_webhook_url || settings?.webhook_url || null;
+}
+
 export default function ScenesPage() {
   const qc = useQueryClient();
   const { data: locations = [] } = useQuery({ queryKey: ["locations"], queryFn: fetchLocations });
   const { data: devices = [] } = useQuery({ queryKey: ["devices-min"], queryFn: fetchDevices });
   const { data: scenes = [] } = useQuery({ queryKey: ["scenes"], queryFn: fetchScenes });
-  const { data: settings } = useQuery({ queryKey: ["app_settings"], queryFn: async () => (await supabase.from("app_settings").select("id,webhook_url").limit(1).maybeSingle()).data });
+  const { data: settings } = useQuery({ queryKey: ["app_settings"], queryFn: fetchSettings });
 
   useRealtimeTables(["scenes", "scene_actions"], () => qc.invalidateQueries({ queryKey: ["scenes"] }));
 
@@ -76,17 +90,29 @@ export default function ScenesPage() {
         await supabase.from("sensor_events").insert({ device_id: act.device_id, event_type: "scene_applied", value: act.desired_state });
       }
 
-      if (settings?.webhook_url) {
-        await supabase.functions.invoke("relay-webhook", {
-          body: {
-            url: settings.webhook_url,
-            background: true,
-            payload: { type: "scene_activation", scene_id: scene.id, actions: scene.actions },
-          },
+      const webhookUrl = getSceneWebhookUrl(settings);
+      if (webhookUrl) {
+        const payload = {
+          source: "dashboard",
+          action: "activate_scene",
+          scene_id: scene.id,
+          location_id: scene.location_id,
+          desired_state: scene.actions?.reduce((acc: any, a: any) => ({ ...acc, [a.device_id]: a.desired_state }), {}),
+          timestamp: new Date().toISOString(),
+        };
+        supabase.functions.invoke("relay-webhook", { body: { url: webhookUrl, background: true, payload } });
+        supabase.from("webhook_logs").insert({
+          webhook_type: "scene_activation",
+          url: webhookUrl,
+          payload,
+          status: 202,
         });
       }
     },
-    onSuccess: () => toast({ title: "Scene activated" }),
+    onSuccess: () => {
+      toast({ title: "Scene activated" });
+      qc.invalidateQueries({ queryKey: ["devices"] });
+    },
     onError: (e) => toast({ title: String(e) }),
   });
 
@@ -98,17 +124,28 @@ export default function ScenesPage() {
           await supabase.from("sensor_events").insert({ device_id: act.device_id, event_type: "scene_applied", value: act.desired_state });
         }
       }
-      if (settings?.webhook_url) {
-        await supabase.functions.invoke("relay-webhook", {
-          body: {
-            url: settings.webhook_url,
-            background: true,
-            payload: { type: "bulk_scene_activation", scene_ids: scenesToActivate.map((s: any) => s.id) },
-          },
+      const webhookUrl = getSceneWebhookUrl(settings);
+      if (webhookUrl) {
+        const payload = {
+          source: "dashboard",
+          action: "activate_scene",
+          scene_id: scenesToActivate.map((s: any) => s.id),
+          desired_state: {},
+          timestamp: new Date().toISOString(),
+        };
+        supabase.functions.invoke("relay-webhook", { body: { url: webhookUrl, background: true, payload } });
+        supabase.from("webhook_logs").insert({
+          webhook_type: "scene_activation",
+          url: webhookUrl,
+          payload,
+          status: 202,
         });
       }
     },
-    onSuccess: () => toast({ title: "Activated selected scenes" }),
+    onSuccess: () => {
+      toast({ title: "Activated selected scenes" });
+      qc.invalidateQueries({ queryKey: ["devices"] });
+    },
     onError: (e) => toast({ title: String(e) }),
   });
 
@@ -124,12 +161,17 @@ export default function ScenesPage() {
     onError: (e) => toast({ title: String(e) }),
   });
 
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const deleteScene = useMutation({
     mutationFn: async (id: string) => {
       const { error } = await supabase.from("scenes").delete().eq("id", id);
       if (error) throw error;
     },
-    onSuccess: () => { toast({ title: "Scene deleted" }); qc.invalidateQueries({ queryKey: ["scenes"] }); },
+    onSuccess: () => {
+      toast({ title: "Scene deleted" });
+      setDeleteConfirmId(null);
+      qc.invalidateQueries({ queryKey: ["scenes"] });
+    },
     onError: (e) => toast({ title: String(e) }),
   });
 
@@ -155,7 +197,7 @@ export default function ScenesPage() {
             disabled={!selectedIds.length}
             onClick={() => bulkActivate.mutate(scenes.filter((s: any) => selectedIds.includes(s.id)))}
           >
-            Activate Selected
+            Activate Selected ({selectedIds.length})
           </Button>
           <Dialog open={openCreate} onOpenChange={setOpenCreate}>
             <DialogTrigger asChild>
@@ -170,7 +212,7 @@ export default function ScenesPage() {
                 <Select onValueChange={(v) => setNewScene((s) => ({ ...s, location_id: v }))}>
                   <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
                   <SelectContent>
-                    {locations.map((l: any) => (
+                    {(locations as any[]).map((l: any) => (
                       <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
                     ))}
                   </SelectContent>
@@ -184,53 +226,63 @@ export default function ScenesPage() {
         </div>
       </div>
 
-      <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {scenes.map((s: any) => (
-          <Card key={s.id}>
-            <CardHeader>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Checkbox
-                    checked={!!selected[s.id]}
-                    onCheckedChange={(v) => setSelected((prev) => ({ ...prev, [s.id]: !!v }))}
-                  />
-                  <CardTitle>{s.name}</CardTitle>
+      {(scenes as any[]).length === 0 ? (
+        <div className="text-center py-16 text-muted-foreground">No scenes yet. Create your first scene.</div>
+      ) : (
+        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {(scenes as any[]).map((s: any) => (
+            <Card key={s.id}>
+              <CardHeader>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Checkbox
+                      checked={!!selected[s.id]}
+                      onCheckedChange={(v) => setSelected((prev) => ({ ...prev, [s.id]: !!v }))}
+                    />
+                    <CardTitle className="text-base">{s.name}</CardTitle>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="secondary" onClick={() => { setEditScene(s); setEditOpen(true); }}>Edit</Button>
+                    <Button size="sm" variant="destructive" onClick={() => setDeleteConfirmId(s.id)}>Delete</Button>
+                  </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="text-sm text-muted-foreground">{s.actions?.length || 0} action{s.actions?.length !== 1 ? "s" : ""}</div>
+                <div className="space-y-2">
+                  {(s.actions || []).map((a: any) => (
+                    <div key={a.id} className="flex items-center justify-between text-sm gap-2">
+                      <div className="min-w-0">
+                        <span className="font-medium">{a.device?.name || a.device_id}:</span>{" "}
+                        <span className="text-muted-foreground text-xs">{JSON.stringify(a.desired_state)}</span>
+                      </div>
+                      <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive shrink-0" onClick={() => deleteAction.mutate(a.id)}>Remove</Button>
+                    </div>
+                  ))}
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="secondary" onClick={() => { setEditScene(s); setEditOpen(true); }}>Edit</Button>
-                  <Button variant="destructive" onClick={() => deleteScene.mutate(s.id)}>Delete</Button>
+                  <Dialog>
+                    <DialogTrigger asChild>
+                      <Button variant="secondary" size="sm">Add Action</Button>
+                    </DialogTrigger>
+                    <DialogContent>
+                      <DialogHeader>
+                        <DialogTitle>Add Action to "{s.name}"</DialogTitle>
+                      </DialogHeader>
+                      <AddActionForm sceneId={s.id} devices={devices} onSave={(payload) => addAction.mutate(payload)} />
+                    </DialogContent>
+                  </Dialog>
+                  <Button size="sm" onClick={() => activateScene.mutate(s)} disabled={!s.actions?.length}>
+                    Activate
+                  </Button>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="text-sm text-muted-foreground">Actions: {s.actions?.length || 0}</div>
-              <div className="space-y-2">
-                {(s.actions || []).map((a: any) => (
-                  <div key={a.id} className="flex items-center justify-between text-sm">
-                    <div>
-                      <span className="font-medium">{a.device?.name || a.device_id}:</span> <span className="text-muted-foreground">{JSON.stringify(a.desired_state)}</span>
-                    </div>
-                    <Button size="sm" variant="destructive" onClick={() => deleteAction.mutate(a.id)}>Remove</Button>
-                  </div>
-                ))}
-              </div>
-              <Dialog>
-                <DialogTrigger asChild>
-                  <Button variant="secondary">Add Action</Button>
-                </DialogTrigger>
-                <DialogContent>
-                  <DialogHeader>
-                    <DialogTitle>Add Action</DialogTitle>
-                  </DialogHeader>
-                  <AddActionForm sceneId={s.id} devices={devices} onSave={(payload) => addAction.mutate(payload)} />
-                </DialogContent>
-              </Dialog>
-              <Button onClick={() => activateScene.mutate(s)}>Activate</Button>
-            </CardContent>
-          </Card>
-        ))}
-      </section>
+              </CardContent>
+            </Card>
+          ))}
+        </section>
+      )}
 
+      {/* Edit Dialog */}
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent>
           <DialogHeader>
@@ -242,7 +294,7 @@ export default function ScenesPage() {
               <Select value={editScene.location_id} onValueChange={(v) => setEditScene({ ...editScene, location_id: v })}>
                 <SelectTrigger><SelectValue placeholder="Select location" /></SelectTrigger>
                 <SelectContent>
-                  {locations.map((l: any) => (
+                  {(locations as any[]).map((l: any) => (
                     <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>
                   ))}
                 </SelectContent>
@@ -251,6 +303,22 @@ export default function ScenesPage() {
           )}
           <DialogFooter>
             <Button onClick={() => updateScene.mutate({ id: editScene.id, name: editScene.name, location_id: editScene.location_id })} disabled={!editScene?.name || !editScene?.location_id}>Save</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <Dialog open={!!deleteConfirmId} onOpenChange={(open) => { if (!open) setDeleteConfirmId(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete Scene</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            Are you sure you want to delete <strong>{(scenes as any[]).find((s: any) => s.id === deleteConfirmId)?.name}</strong>? All actions will also be removed.
+          </p>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setDeleteConfirmId(null)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => deleteConfirmId && deleteScene.mutate(deleteConfirmId)}>Delete</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -272,7 +340,10 @@ function AddActionForm({ sceneId, devices, onSave }: { sceneId: string; devices:
           ))}
         </SelectContent>
       </Select>
-      <textarea className="w-full min-h-32 rounded-md border bg-background p-2 text-sm" value={json} onChange={(e) => setJson(e.target.value)} />
+      <div>
+        <label className="text-sm font-medium">Desired State (JSON)</label>
+        <textarea className="w-full min-h-32 rounded-md border bg-background p-2 text-sm font-mono" value={json} onChange={(e) => setJson(e.target.value)} />
+      </div>
       <div className="flex justify-end">
         <Button
           disabled={!deviceId}

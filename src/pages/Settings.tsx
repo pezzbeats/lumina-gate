@@ -1,32 +1,71 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { useRealtimeTables } from "@/hooks/useRealtime";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { useState, useEffect } from "react";
+import { Send, RefreshCw, Trash2 } from "lucide-react";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+
+interface WebhookUrls {
+  device_toggle_webhook_url: string;
+  scene_activate_webhook_url: string;
+  sensor_event_webhook_url: string;
+}
+
+async function fetchSettings() {
+  const { data, error } = await supabase
+    .from("app_settings")
+    .select("id,webhook_url,device_toggle_webhook_url,scene_activate_webhook_url,sensor_event_webhook_url")
+    .limit(1)
+    .maybeSingle();
+  if (error) throw error;
+  return data;
+}
+
+async function fetchLogs() {
+  const { data, error } = await supabase
+    .from("webhook_logs")
+    .select("id,webhook_type,url,status,duration_ms,error,created_at")
+    .order("created_at", { ascending: false })
+    .limit(50);
+  if (error) throw error;
+  return data || [];
+}
 
 export default function SettingsPage() {
   const qc = useQueryClient();
-  const { data } = useQuery({
-    queryKey: ["app_settings"],
-    queryFn: async () => {
-      const { data, error } = await supabase.from("app_settings").select("id,webhook_url").limit(1).maybeSingle();
-      if (error) throw error;
-      return data || null;
-    },
+  const { data: settings } = useQuery({ queryKey: ["app_settings"], queryFn: fetchSettings });
+  const { data: logs = [] } = useQuery({ queryKey: ["webhook_logs"], queryFn: fetchLogs });
+
+  useRealtimeTables(["webhook_logs"], () => qc.invalidateQueries({ queryKey: ["webhook_logs"] }));
+
+  const [urls, setUrls] = useState<WebhookUrls>({
+    device_toggle_webhook_url: "",
+    scene_activate_webhook_url: "",
+    sensor_event_webhook_url: "",
   });
 
-  const [webhook, setWebhook] = useState<string>(data?.webhook_url || "");
-  useEffect(() => { if (data?.webhook_url) setWebhook(data.webhook_url); }, [data?.webhook_url]);
+  useEffect(() => {
+    if (!settings) return;
+    const fallback = settings.webhook_url || "";
+    setUrls({
+      device_toggle_webhook_url: settings.device_toggle_webhook_url || fallback,
+      scene_activate_webhook_url: settings.scene_activate_webhook_url || fallback,
+      sensor_event_webhook_url: settings.sensor_event_webhook_url || fallback,
+    });
+  }, [JSON.stringify(settings)]);
 
   const save = useMutation({
-    mutationFn: async (url: string) => {
-      if (data?.id) {
-        const { error } = await supabase.from("app_settings").update({ webhook_url: url }).eq("id", data.id);
+    mutationFn: async () => {
+      if (settings?.id) {
+        const { error } = await supabase.from("app_settings").update(urls).eq("id", settings.id);
         if (error) throw error;
       } else {
-        const { error } = await supabase.from("app_settings").insert({ webhook_url: url });
+        const { error } = await supabase.from("app_settings").insert(urls);
         if (error) throw error;
       }
     },
@@ -38,19 +77,28 @@ export default function SettingsPage() {
   });
 
   const testWebhook = useMutation({
-    mutationFn: async () => {
-      if (!webhook) throw new Error("Please enter a webhook URL");
+    mutationFn: async (type: keyof WebhookUrls) => {
+      const url = urls[type];
+      if (!url) throw new Error("Please enter a URL for this webhook");
+      const start = Date.now();
+      const payload = {
+        source: "dashboard",
+        action: "test",
+        webhook_type: type,
+        timestamp: new Date().toISOString(),
+        message: "Test from Lumina Gate Settings",
+      };
       const { error } = await supabase.functions.invoke("relay-webhook", {
-        body: {
-          url: webhook,
-          background: true,
-          payload: {
-            type: "test",
-            source: "settings_page",
-            timestamp: new Date().toISOString(),
-            message: "Webhook test from Home Automation Control Panel",
-          },
-        },
+        body: { url, background: false, payload },
+      });
+      const duration_ms = Date.now() - start;
+      await supabase.from("webhook_logs").insert({
+        webhook_type: type,
+        url,
+        payload,
+        status: error ? 500 : 200,
+        duration_ms,
+        error: error ? String(error) : null,
       });
       if (error) throw error;
     },
@@ -58,20 +106,159 @@ export default function SettingsPage() {
     onError: (e) => toast({ title: `Test failed: ${String(e)}` }),
   });
 
+  const [clearConfirm, setClearConfirm] = useState(false);
+  const clearLogs = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("webhook_logs").delete().neq("id", "00000000-0000-0000-0000-000000000000");
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      toast({ title: "Logs cleared" });
+      setClearConfirm(false);
+      qc.invalidateQueries({ queryKey: ["webhook_logs"] });
+    },
+    onError: (e) => toast({ title: String(e) }),
+  });
+
+  const WEBHOOK_FIELDS: { key: keyof WebhookUrls; label: string; description: string }[] = [
+    {
+      key: "device_toggle_webhook_url",
+      label: "Device Toggle Webhook",
+      description: "Called when a device state is updated (toggle, slider, preset).",
+    },
+    {
+      key: "scene_activate_webhook_url",
+      label: "Scene Activation Webhook",
+      description: "Called when a scene is activated (single or bulk).",
+    },
+    {
+      key: "sensor_event_webhook_url",
+      label: "Sensor Event Webhook",
+      description: "Called when a sensor event is simulated or triggered.",
+    },
+  ];
+
   return (
-    <main className="container py-6 space-y-4">
+    <main className="container py-6 space-y-6 max-w-3xl">
       <h1 className="text-2xl font-semibold">Settings</h1>
+
+      {/* Webhook Configuration */}
       <Card>
-        <CardContent className="py-6 space-y-3">
-          <label className="text-sm font-medium">n8n/Webhook URL</label>
-          <Input placeholder="https://webhook.site/.. or your n8n webhook" value={webhook} onChange={(e) => setWebhook(e.target.value)} />
-          <div className="text-sm text-muted-foreground">All device actions and scene activations will be relayed to this URL through a Supabase Edge Function. Replace this with your real orchestrator later.</div>
-          <div className="flex gap-2">
-            <Button onClick={() => save.mutate(webhook)} disabled={!webhook}>Save</Button>
-            <Button variant="secondary" onClick={() => testWebhook.mutate()} disabled={!webhook}>Test Webhook</Button>
-          </div>
+        <CardHeader>
+          <CardTitle className="text-lg">Webhook Configuration</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {WEBHOOK_FIELDS.map(({ key, label, description }) => (
+            <div key={key} className="space-y-2">
+              <label className="text-sm font-medium">{label}</label>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="https://your-n8n-or-webhook-url"
+                  value={urls[key]}
+                  onChange={(e) => setUrls((u) => ({ ...u, [key]: e.target.value }))}
+                />
+                <Button
+                  variant="secondary"
+                  size="icon"
+                  onClick={() => testWebhook.mutate(key)}
+                  disabled={!urls[key] || testWebhook.isPending}
+                  title="Test this webhook"
+                >
+                  <Send className="h-4 w-4" />
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">{description}</p>
+            </div>
+          ))}
+          <Button onClick={() => save.mutate()} disabled={save.isPending}>
+            Save Settings
+          </Button>
         </CardContent>
       </Card>
+
+      {/* Webhook Logs */}
+      <Card>
+        <CardHeader>
+          <div className="flex items-center justify-between">
+            <CardTitle className="text-lg">Recent Webhook Logs</CardTitle>
+            <div className="flex gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => qc.invalidateQueries({ queryKey: ["webhook_logs"] })}
+                title="Refresh logs"
+              >
+                <RefreshCw className="h-4 w-4" />
+              </Button>
+              {logs.length > 0 && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setClearConfirm(true)}
+                  title="Clear all logs"
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          {logs.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-4 text-center">No webhook logs yet. Logs appear here when webhooks are sent.</p>
+          ) : (
+            <div className="space-y-2">
+              {logs.map((log: any) => (
+                <div key={log.id} className="flex items-start justify-between gap-3 rounded-md border p-3 text-sm">
+                  <div className="space-y-0.5 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="font-medium capitalize">{log.webhook_type.replace(/_/g, " ")}</span>
+                      {log.duration_ms != null && (
+                        <span className="text-xs text-muted-foreground">{log.duration_ms}ms</span>
+                      )}
+                    </div>
+                    <div className="text-xs text-muted-foreground truncate max-w-sm">{log.url || "—"}</div>
+                    {log.error && (
+                      <div className="text-xs text-destructive truncate max-w-sm">{log.error}</div>
+                    )}
+                  </div>
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <StatusBadge status={log.status} />
+                    <span className="text-xs text-muted-foreground">
+                      {new Date(log.created_at).toLocaleString()}
+                    </span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Clear Confirm Dialog */}
+      <Dialog open={clearConfirm} onOpenChange={setClearConfirm}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear Webhook Logs</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground">
+            This will permanently delete all {logs.length} webhook log entries. This cannot be undone.
+          </p>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setClearConfirm(false)}>Cancel</Button>
+            <Button variant="destructive" onClick={() => clearLogs.mutate()} disabled={clearLogs.isPending}>
+              Clear All
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </main>
   );
+}
+
+function StatusBadge({ status }: { status: number | null }) {
+  if (status == null) return <Badge variant="secondary">—</Badge>;
+  if (status >= 200 && status < 300) return <Badge className="bg-green-100 text-green-800 hover:bg-green-100">{status}</Badge>;
+  if (status >= 400) return <Badge variant="destructive">{status}</Badge>;
+  return <Badge variant="secondary">{status}</Badge>;
 }
