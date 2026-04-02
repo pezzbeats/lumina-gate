@@ -88,21 +88,25 @@ export default function SettingsPage() {
         timestamp: new Date().toISOString(),
         message: "Test from Lumina Gate Settings",
       };
-      const { error } = await supabase.functions.invoke("relay-webhook", {
+      // Use background:false so relay-webhook waits and returns n8n's real status
+      const { data: relayData, error } = await supabase.functions.invoke("relay-webhook", {
         body: { url, background: false, payload },
       });
       const duration_ms = Date.now() - start;
+      // relayData contains { ok, status, statusText, body } from the real upstream response
+      const upstreamStatus: number = error ? 500 : (relayData?.status ?? 200);
       await supabase.from("webhook_logs").insert({
         webhook_type: type,
         url,
         payload,
-        status: error ? 500 : 200,
+        status: upstreamStatus,
         duration_ms,
-        error: error ? String(error) : null,
+        error: error ? String(error) : (relayData?.ok === false ? relayData?.body : null),
       });
       if (error) throw error;
+      if (relayData?.ok === false) throw new Error(`Upstream returned ${upstreamStatus}: ${relayData?.body}`);
     },
-    onSuccess: () => toast({ title: "Webhook test sent" }),
+    onSuccess: () => toast({ title: "Webhook test sent — check logs below" }),
     onError: (e) => toast({ title: `Test failed: ${String(e)}` }),
   });
 
